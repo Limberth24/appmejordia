@@ -9,11 +9,29 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_riverpod: ^2.5.1
+  sqflite: ^2.3.3
+  path: ^1.9.0
+  intl: ^0.19.0
+  google_fonts: ^6.1.0
+  sqflite_common_ffi: ^2.4.2+1
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.13.1
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/logo-mejordia.png
+
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/logo-mejordia.png"
+  adaptive_icon_background: "#1a237e"
+  adaptive_icon_foreground: "assets/logo-mejordia.png"
+  web:
+    generate: false
