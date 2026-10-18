@@ -6,7 +6,10 @@ plugins {
 
 android {
     namespace = "com.example.appmejordia"
-    compileSdk = flutter.compileSdkVersion
+    // permission_handler_android 14.1.0 compila contra SDK 37, por eso se fija
+    // compileSdk 37 (flutter.compileSdkVersion en Flutter 3.44 es 36).
+    // Requiere AGP 9.1+ (ver settings.gradle.kts).
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
