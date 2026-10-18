@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../../core/backup/backup_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../providers/habit_providers.dart';
 
@@ -14,6 +15,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   late TextEditingController _controller;
   bool _initialized = false;
   final _formKey = GlobalKey<FormState>();
+  bool _backupBusy = false;
+  String? _lastBackupPath;
 
   @override
   void dispose() {
@@ -141,21 +144,154 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(color: AppColors.surfaceContainerLowest, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppColors.outlineVariant.withOpacity(0.25))),
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  const Text('Información', style: TextStyle(fontFamily: 'Hanken Grotesk', fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.onSurface)),
-                  const SizedBox(height: 12),
-                  _infoRow(Icons.storage_rounded, 'Almacenamiento 100% local (SQLite)'),
-                  _infoRow(Icons.offline_bolt_rounded, 'Funciona sin internet'),
-                  _infoRow(Icons.lock_rounded, 'Privado, sin permisos extra'),
-                  _infoRow(Icons.palette_rounded, 'Diseño Material 3 Corporate Modern'),
+                  Row(children: [
+                    Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: AppColors.primary.withOpacity(0.08), borderRadius: BorderRadius.circular(10)), child: const Icon(Icons.backup_rounded, size: 18, color: AppColors.primary)),
+                    const SizedBox(width: 10),
+                    const Expanded(
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text('Respaldo', style: TextStyle(fontFamily: 'Hanken Grotesk', fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.onSurface)),
+                        Text('Guarda tu progreso antes de desinstalar', style: TextStyle(fontFamily: 'Hanken Grotesk', fontSize: 11, fontWeight: FontWeight.w400, color: AppColors.onSurfaceVariant)),
+                      ]),
+                    ),
+                  ]),
+                  const SizedBox(height: 14),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: ElevatedButton.icon(
+                      onPressed: _backupBusy ? null : _exportBackup,
+                      icon: _backupBusy
+                          ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                          : const Icon(Icons.upload_rounded, size: 18),
+                      label: Text(_backupBusy ? 'Procesando...' : 'Exportar copia a Descargas',
+                          style: const TextStyle(fontFamily: 'Hanken Grotesk', fontSize: 14, fontWeight: FontWeight.w600)),
+                      style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primary, foregroundColor: Colors.white, elevation: 0, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: OutlinedButton.icon(
+                      onPressed: _backupBusy ? null : _importBackup,
+                      icon: const Icon(Icons.download_rounded, size: 18),
+                      label: const Text('Importar copia', style: TextStyle(fontFamily: 'Hanken Grotesk', fontSize: 14, fontWeight: FontWeight.w600)),
+                      style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.primary,
+                          side: BorderSide(color: AppColors.primary.withOpacity(0.5)),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                    ),
+                  ),
+                  if (_lastBackupPath != null) ...[
+                    const SizedBox(height: 10),
+                    Text('Última copia: $_lastBackupPath',
+                        style: const TextStyle(fontFamily: 'Hanken Grotesk', fontSize: 11, fontWeight: FontWeight.w400, color: AppColors.onSurfaceVariant)),
+                  ],
+                  const SizedBox(height: 8),
+                  const Text('Si Android no permite guardar directo, se abrirá Compartir para que elijas Guardar en Descargas / Drive.',
+                      style: TextStyle(fontFamily: 'Hanken Grotesk', fontSize: 11, fontWeight: FontWeight.w400, color: AppColors.onSurfaceVariant, height: 1.4)),
                 ]),
               ),
               const SizedBox(height: 16),
-              const Center(child: Text('MejorDía v0.1.0 • MVP', style: TextStyle(fontFamily: 'Hanken Grotesk', fontSize: 11, fontWeight: FontWeight.w500, color: AppColors.outline, letterSpacing: 0.5))),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(color: AppColors.surfaceContainerLowest, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppColors.outlineVariant.withOpacity(0.25))),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const Text('Información', style: TextStyle(fontFamily: 'Hanken Grotesk', fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.onSurface)),
+                  const SizedBox(height: 12),
+                  _infoRow(Icons.storage_rounded, 'Almacenamiento local'),
+                  _infoRow(Icons.offline_bolt_rounded, 'Funciona sin internet'),
+                  _infoRow(Icons.lock_rounded, 'Privado, sin permisos extra'),
+                ]),
+              ),
+              const SizedBox(height: 16),
+              const Center(child: Text('MejorDía v1.2.0 • MVP', style: TextStyle(fontFamily: 'Hanken Grotesk', fontSize: 11, fontWeight: FontWeight.w500, color: AppColors.outline, letterSpacing: 0.5))),
             ]),
           );
         },
       ),
     );
+  }
+
+  Future<void> _exportBackup() async {
+    setState(() => _backupBusy = true);
+    try {
+      final result = await BackupService.exportBackup();
+      if (!mounted) return;
+      setState(() => _lastBackupPath = result.publicPath ?? result.tempPath);
+
+      if (result.publicPath != null) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Copia guardada en:\n${result.publicPath}'),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 6),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ));
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: const Text('Elige "Guardar en Descargas" o Drive en el menú Compartir.'),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))));
+        await BackupService.shareBackupFile(result.tempPath);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('No se pudo exportar: $e'),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))));
+    } finally {
+      if (mounted) setState(() => _backupBusy = false);
+    }
+  }
+
+  Future<void> _importBackup() async {
+    try {
+      final picked = await BackupService.pickBackupFile();
+      if (picked == null || !mounted) return;
+
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Restaurar respaldo?'),
+          content: const Text('Se reemplazará tu progreso actual con la copia elegida.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Restaurar')),
+          ],
+        ),
+      );
+      if (confirm != true || !mounted) return;
+
+      setState(() => _backupBusy = true);
+      try {
+        await BackupService.restoreBackup(picked);
+        if (!mounted) return;
+        // Refrescar toda la UI con los datos restaurados.
+        ref.invalidate(habitNameProvider);
+        ref.invalidate(registrosMesProvider);
+        ref.invalidate(allRegistrosProvider);
+        ref.invalidate(resumenMensualProvider);
+        ref.invalidate(rachaProvider);
+        setState(() => _initialized = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: const Text('Respaldo restaurado correctamente.'),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))));
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('No se pudo importar: $e'),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))));
+      } finally {
+        if (mounted) setState(() => _backupBusy = false);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo abrir el archivo: $e')));
+    }
   }
 
   Widget _infoRow(IconData icon, String text) {
