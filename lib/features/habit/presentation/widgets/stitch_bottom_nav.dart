@@ -22,9 +22,9 @@ class StitchBottomNav extends StatelessWidget {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
-              _item(index: 0, icon: Icons.dashboard_rounded, label: 'Home', isActive: currentIndex == 0),
-              // _item(index: 1, icon: Icons.history_rounded, label: 'History', isActive: currentIndex == 1),
-              // _item(index: 2, icon: Icons.person_rounded, label: 'Profile', isActive: currentIndex == 2),
+              _item(index: 0, icon: Icons.today_rounded, label: 'Agenda', isActive: currentIndex == 0),
+              _item(index: 1, icon: Icons.calendar_month_rounded, label: 'Mes', isActive: currentIndex == 1),
+              _item(index: 2, icon: Icons.history_rounded, label: 'Historial', isActive: currentIndex == 2),
             ],
           ),
         ),

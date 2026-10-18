@@ -3,6 +3,12 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/utils/date_utils.dart';
+import '../../domain/entities/registro.dart';
+import '../../../hitos/presentation/providers/hito_providers.dart';
+import '../../../hitos/presentation/screens/misiones_dia_screen.dart';
+import '../../../hitos/presentation/screens/registrar_hito_screen.dart';
+import '../../../hitos/presentation/widgets/hitos_historial.dart';
+import '../../../hitos/presentation/widgets/hitos_mes_view.dart';
 import '../providers/habit_providers.dart';
 import '../sheets/registro_sheet.dart';
 import '../widgets/calendar_grid.dart';
@@ -18,7 +24,8 @@ class DashboardScreen extends ConsumerStatefulWidget {
 }
 
 class _DashboardScreenState extends ConsumerState<DashboardScreen> {
-  int _navIndex = 0;
+  // La app abre en el nav de Mes (objetivo diario).
+  int _navIndex = 1;
 
   String _greeting() {
     final h = DateTime.now().hour;
@@ -27,7 +34,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     return 'Buenas noches';
   }
 
-  void _handleDayTap(DateTime date, int? estado) {
+  void _handleDayTap(DateTime date, int? estado) async {
     if (AppDateUtils.isFuture(date)) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: const Text('No puedes registrar días futuros'),
@@ -36,16 +43,43 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       return;
     }
     HapticFeedback.selectionClick();
+    // "Lo Logré" solo si los hitos de hoy están al 100% (solo aplica a hoy).
+    var puedeLograr = true;
+    final esHoy = AppDateUtils.isSameDay(date, DateTime.now());
+    if (esHoy) {
+      try {
+        final items = await ref.read(agendaHoyProvider.future);
+        puedeLograr = items.every((e) => e.completadoDia);
+      } catch (_) {
+        puedeLograr = true;
+      }
+    }
+    if (!mounted) return;
     showRegistroSheet(
       context,
       date: date,
       estadoActual: estado,
+      puedeLograr: puedeLograr,
+      onVerMisiones: () => Navigator.push(
+          context,
+          MaterialPageRoute(
+              builder: (_) => MisionesDiaScreen(fecha: date))),
       onSelect: (nuevoEstado) async {
         final iso = AppDateUtils.toIso(date);
         await ref.read(habitActionsProvider).upsert(iso, nuevoEstado);
+        var extra = '';
+        if (nuevoEstado == 0 && esHoy) {
+          // Al fallar: los diarios pendientes pasan a mañana.
+          final movidos =
+              await ref.read(hitoActionsProvider).reprogramarPendientes(date);
+          if (movidos > 0) {
+            extra =
+                ' • $movidos hito${movidos == 1 ? '' : 's'} pasado${movidos == 1 ? '' : 's'} a mañana';
+          }
+        }
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: Text(nuevoEstado == 1 ? '¡Excelente! Día marcado como éxito' : 'Día marcado como fallado'),
+              content: Text(nuevoEstado == 1 ? '¡Excelente! Día marcado como éxito' : 'Día marcado como fallado$extra'),
               backgroundColor: nuevoEstado == 1 ? AppColors.secondary : AppColors.error,
               behavior: SnackBarBehavior.floating,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))));
@@ -129,100 +163,104 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         ),
       ),
       body: _navIndex == 1
-          ? _buildHistoryTab()
+          ? _buildMesTab(focusedMonth, rachaAsync, habitNameAsync)
           : _navIndex == 2
-              ? _buildProfileTab()
-              : SingleChildScrollView(
-                  padding: const EdgeInsets.only(bottom: 24),
-                  child: Stack(children: [
-                    Positioned(
-                        top: -32,
-                        right: -40,
-                        child: Container(width: 256, height: 256, decoration: BoxDecoration(color: AppColors.primary.withOpacity(0.05), shape: BoxShape.circle))),
-                    Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                            Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                              Row(children: [
-                                Text(AppDateUtils.formatMonthYear(focusedMonth), style: const TextStyle(fontFamily: 'Hanken Grotesk', fontSize: 24, fontWeight: FontWeight.w600, color: AppColors.onSurface, height: 1.2)),
-                                const SizedBox(width: 6),
-                                _monthNavButton(icon: Icons.chevron_left_rounded, onTap: () => ref.read(habitActionsProvider).prevMonth()),
-                                const SizedBox(width: 2),
-                                _monthNavButton(icon: Icons.chevron_right_rounded, onTap: () => ref.read(habitActionsProvider).nextMonth()),
-                              ]),
-                              const SizedBox(height: 4),
-                              habitNameAsync.when(
-                                  data: (name) => Text('${_greeting()} • ${name.isEmpty ? 'Mantén la racha activa' : name}',
-                                      style: const TextStyle(fontFamily: 'Hanken Grotesk', fontSize: 13, fontWeight: FontWeight.w400, color: AppColors.onSurfaceVariant)),
-                                  loading: () => Text(_greeting(), style: const TextStyle(fontFamily: 'Hanken Grotesk', fontSize: 13, color: AppColors.onSurfaceVariant)),
-                                  error: (_, _) => Text(_greeting(), style: const TextStyle(fontFamily: 'Hanken Grotesk', fontSize: 13, color: AppColors.onSurfaceVariant))),
-                            ]),
-                            InkWell(
-                                onTap: () => ref.read(habitActionsProvider).goToday(),
-                                borderRadius: BorderRadius.circular(999),
-                                child: Container(
-                                    width: 40,
-                                    height: 40,
-                                    decoration: BoxDecoration(color: AppColors.primaryContainer, shape: BoxShape.circle, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 4, offset: const Offset(0, 1))]),
-                                    child: const Icon(Icons.calendar_today_rounded, size: 18, color: Colors.white))),
-                          ]),
-                          const SizedBox(height: 14),
-                          rachaAsync.when(
-                            data: (racha) => IntrinsicHeight(
-                                child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                              Expanded(child: _streakCard(label: 'Racha actual', value: racha.actual, icon: Icons.local_fire_department_rounded, color: AppColors.primary, subtitle: 'Hoy')),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                  child: _streakCard(
-                                      label: 'Mejor racha',
-                                      value: racha.mejorDelMes,
-                                      icon: Icons.emoji_events_rounded,
-                                      color: AppColors.secondary,
-                                      subtitle: 'Histórica: ${racha.mejorHistorica}')),
-                            ])),
-                            loading: () => const SizedBox(height: 80, child: Center(child: CircularProgressIndicator(strokeWidth: 2))),
-                            error: (e, _) => Text('Error racha: $e'),
-                          ),
-                          const SizedBox(height: 16),
-                          CalendarGrid(onDayTap: _handleDayTap),
-                          const SizedBox(height: 12),
-                          Wrap(alignment: WrapAlignment.center, spacing: 8, runSpacing: 8, children: [
-                            _legendPill(color: AppColors.secondary, label: 'Éxito'),
-                            _legendPill(color: AppColors.error, label: 'Fracaso'),
-                            _legendPillOutline(label: 'Sin registrar'),
-                          ]),
-                          const SizedBox(height: 16),
-                          const MonthlySummary(),
-                          const SizedBox(height: 8),
-                        ])),
-                  ]),
-                ),
+              ? _buildHistoryTab()
+              : const HitosMesView(),
       bottomNavigationBar: StitchBottomNav(
           currentIndex: _navIndex,
-          onTap: (i) {
-            if (i == 2) {
-              Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
-              return;
-            }
-            setState(() => _navIndex = i);
-          }),
+          onTap: (i) => setState(() => _navIndex = i)),
       floatingActionButton: _navIndex == 0
           ? FloatingActionButton.extended(
-              onPressed: () {
-                final today = AppDateUtils.normalize(DateTime.now());
-                final registros = ref.read(registrosMesProvider).value;
-                final iso = AppDateUtils.toIso(today);
-                final estado = registros?[iso];
-                _handleDayTap(today, estado);
-              },
+              onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (_) => const RegistrarHitoScreen())),
               backgroundColor: AppColors.primary,
               foregroundColor: Colors.white,
               elevation: 4,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               icon: const Icon(Icons.add_rounded, size: 20),
-              label: const Text('Registrar hoy', style: TextStyle(fontFamily: 'Hanken Grotesk', fontSize: 14, fontWeight: FontWeight.w600)))
-          : null,
+              label: const Text('Registrar hito', style: TextStyle(fontFamily: 'Hanken Grotesk', fontSize: 14, fontWeight: FontWeight.w600)))
+          : _navIndex == 1
+              ? FloatingActionButton.extended(
+                  onPressed: () {
+                    final today = AppDateUtils.normalize(DateTime.now());
+                    final registros = ref.read(registrosMesProvider).value;
+                    final iso = AppDateUtils.toIso(today);
+                    final estado = registros?[iso];
+                    _handleDayTap(today, estado);
+                  },
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                  elevation: 4,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  icon: const Icon(Icons.add_rounded, size: 20),
+                  label: const Text('Registrar hoy', style: TextStyle(fontFamily: 'Hanken Grotesk', fontSize: 14, fontWeight: FontWeight.w600)))
+              : null,
+    );
+  }
+
+  Widget _buildMesTab(DateTime focusedMonth, AsyncValue<RachaInfo> rachaAsync, AsyncValue<String> habitNameAsync) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 800),
+          child: _legacyHabitContent(focusedMonth, rachaAsync, habitNameAsync),
+        ),
+      ),
+    );
+  }
+
+  /// Objetivo diario (vista Mes): se muestra tal cual, sin desplegable.
+  Widget _legacyHabitContent(DateTime focusedMonth, AsyncValue<RachaInfo> rachaAsync, AsyncValue<String> habitNameAsync) {
+    return Container(
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppColors.outlineVariant.withOpacity(0.3))),
+      child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                  Text(AppDateUtils.formatMonthYear(focusedMonth), style: const TextStyle(fontFamily: 'Hanken Grotesk', fontSize: 18, fontWeight: FontWeight.w600, color: AppColors.onSurface)),
+                  Row(children: [
+                    _monthNavButton(icon: Icons.chevron_left_rounded, onTap: () => ref.read(habitActionsProvider).prevMonth()),
+                    const SizedBox(width: 4),
+                    _monthNavButton(icon: Icons.chevron_right_rounded, onTap: () => ref.read(habitActionsProvider).nextMonth()),
+                  ]),
+                ]),
+                const SizedBox(height: 4),
+                habitNameAsync.when(
+                  data: (name) => Text('${_greeting()}${name.isEmpty ? '' : ' • $name'}',
+                      style: const TextStyle(fontFamily: 'Hanken Grotesk', fontSize: 13, fontWeight: FontWeight.w400, color: AppColors.onSurfaceVariant)),
+                  loading: () => Text(_greeting(), style: const TextStyle(fontFamily: 'Hanken Grotesk', fontSize: 13, color: AppColors.onSurfaceVariant)),
+                  error: (_, _) => Text(_greeting(), style: const TextStyle(fontFamily: 'Hanken Grotesk', fontSize: 13, color: AppColors.onSurfaceVariant)),
+                ),
+                const SizedBox(height: 12),
+                rachaAsync.when(
+                  data: (racha) => IntrinsicHeight(
+                      child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                    Expanded(child: _streakCard(label: 'Racha actual', value: racha.actual, icon: Icons.local_fire_department_rounded, color: AppColors.primary, subtitle: 'Hoy')),
+                    const SizedBox(width: 12),
+                    Expanded(child: _streakCard(label: 'Mejor racha', value: racha.mejorDelMes, icon: Icons.emoji_events_rounded, color: AppColors.secondary, subtitle: 'Histórica: ${racha.mejorHistorica}')),
+                  ])),
+                  loading: () => const SizedBox(height: 60, child: Center(child: CircularProgressIndicator(strokeWidth: 2))),
+                  error: (e, _) => Text('Error racha: $e'),
+                ),
+                const SizedBox(height: 12),
+                CalendarGrid(onDayTap: _handleDayTap),
+                const SizedBox(height: 12),
+                Wrap(alignment: WrapAlignment.center, spacing: 8, runSpacing: 8, children: [
+                  _legendPill(color: AppColors.secondary, label: 'Éxito'),
+                  _legendPill(color: AppColors.error, label: 'Fracaso'),
+                  _legendPillOutline(label: 'Sin registrar'),
+                ]),
+                const SizedBox(height: 12),
+                const MonthlySummary(),
+              ],
+            ),
+          ),
     );
   }
 
@@ -279,8 +317,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final focused = ref.watch(focusedMonthProvider);
     final resumenAsync = ref.watch(resumenMensualProvider);
     return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 640),
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text('Historial • ${AppDateUtils.formatMonthYear(focused)}', style: const TextStyle(fontFamily: 'Hanken Grotesk', fontSize: 18, fontWeight: FontWeight.w600, color: AppColors.onSurface)),
         const SizedBox(height: 12),
         resumenAsync.when(
@@ -301,22 +343,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           error: (e, _) => Text('Error: $e'),
         ),
         const SizedBox(height: 16),
-        Expanded(
-            child: Container(
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
-                child: const Center(
-                    child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                  Icon(Icons.calendar_view_month_rounded, size: 36, color: AppColors.outline),
-                  SizedBox(height: 12),
-                  Text('Usa el Dashboard para navegar por meses.\nEl historial detallado por día se ampliará en v2 con filtros y exportación.',
-                      textAlign: TextAlign.center, style: TextStyle(fontFamily: 'Hanken Grotesk', fontSize: 13, color: AppColors.onSurfaceVariant, height: 1.4)),
-                ])))),
+        const Expanded(child: HitosHistorial()),
+        const SizedBox(height: 16),
       ]),
+        ),
+      ),
     );
   }
 
-  Widget _buildProfileTab() {
-    return const SizedBox.shrink();
-  }
 }

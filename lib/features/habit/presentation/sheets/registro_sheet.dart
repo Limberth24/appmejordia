@@ -9,12 +9,20 @@ class RegistroSheet extends StatelessWidget {
   final void Function(int estado) onSelect;
   final VoidCallback? onDelete;
 
+  /// Abre el listado de misiones del día (estilo Google Calendar).
+  final VoidCallback? onVerMisiones;
+
+  /// Si es false, "Lo Logré" sale deshabilitado (hitos de hoy incompletos).
+  final bool puedeLograr;
+
   const RegistroSheet({
     super.key,
     required this.date,
     required this.estadoActual,
     required this.onSelect,
     this.onDelete,
+    this.onVerMisiones,
+    this.puedeLograr = true,
   });
 
   String _formatDate(DateTime d) {
@@ -51,16 +59,24 @@ class RegistroSheet extends StatelessWidget {
           const SizedBox(height: 6),
           const Text('¿Cómo te fue con tu hábito hoy?',
               style: TextStyle(fontFamily: 'Hanken Grotesk', fontSize: 14, fontWeight: FontWeight.w400, color: AppColors.onSurfaceVariant)),
+          if (!puedeLograr) ...[
+            const SizedBox(height: 8),
+            const Text('Completa tus hitos de hoy al 100% para marcarlo como logrado.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontFamily: 'Hanken Grotesk', fontSize: 12, fontWeight: FontWeight.w500, color: AppColors.error)),
+          ],
           const SizedBox(height: 24),
           SizedBox(
             width: double.infinity,
             height: 56,
             child: ElevatedButton.icon(
-              onPressed: () {
-                HapticFeedback.lightImpact();
-                Navigator.pop(context);
-                onSelect(1);
-              },
+              onPressed: puedeLograr
+                  ? () {
+                      HapticFeedback.lightImpact();
+                      Navigator.pop(context);
+                      onSelect(1);
+                    }
+                  : null,
               icon: const Icon(Icons.check_circle_rounded, size: 22),
               label: const Text('Lo Logré'),
               style: ElevatedButton.styleFrom(
@@ -93,6 +109,28 @@ class RegistroSheet extends StatelessWidget {
               ),
             ),
           ),
+          if (onVerMisiones != null) ...[
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              height: 56,
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  HapticFeedback.selectionClick();
+                  Navigator.pop(context);
+                  onVerMisiones!.call();
+                },
+                icon: const Icon(Icons.calendar_view_day_rounded, size: 22),
+                label: const Text('Ver misiones del día'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.primary,
+                  side: BorderSide(color: AppColors.primary.withValues(alpha: 0.4)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+                  textStyle: const TextStyle(fontFamily: 'Hanken Grotesk', fontSize: 16, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ),
+          ],
           const SizedBox(height: 16),
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -129,6 +167,8 @@ Future<void> showRegistroSheet(
   required int? estadoActual,
   required void Function(int estado) onSelect,
   VoidCallback? onDelete,
+  VoidCallback? onVerMisiones,
+  bool puedeLograr = true,
 }) {
   return showModalBottomSheet(
     context: context,
@@ -137,7 +177,13 @@ Future<void> showRegistroSheet(
     barrierColor: AppColors.inverseSurface.withOpacity(0.5),
     builder: (_) => Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-      child: RegistroSheet(date: date, estadoActual: estadoActual, onSelect: onSelect, onDelete: onDelete),
+      child: RegistroSheet(
+          date: date,
+          estadoActual: estadoActual,
+          onSelect: onSelect,
+          onDelete: onDelete,
+          onVerMisiones: onVerMisiones,
+          puedeLograr: puedeLograr),
     ),
   );
 }
